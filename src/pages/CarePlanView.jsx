@@ -37,7 +37,7 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
     // 2. Generate with Claude AI
     try {
       const prompt = buildPrompt(dx);
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
