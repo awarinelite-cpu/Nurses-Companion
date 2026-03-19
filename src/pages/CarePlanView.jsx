@@ -38,8 +38,9 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
     try {
       const prompt = buildPrompt(dx);
       const res = await fetch('/api/generate', {
-        method: 'POST',
-        body: JSON.stringify({
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 1800,
           messages: [{ role: 'user', content: prompt }],
