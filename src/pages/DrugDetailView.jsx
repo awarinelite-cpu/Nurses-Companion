@@ -40,7 +40,7 @@ export default function DrugDetailView({ showToast, onLoginNeeded }) {
 
     // 3. Generate with AI
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
