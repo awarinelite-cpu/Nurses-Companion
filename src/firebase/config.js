@@ -1,30 +1,19 @@
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
+import { initializeApp } from 'firebase/app';
+import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
 
-    // Public read-only: care plan cache (AI-generated plans)
-    match /carePlanCache/{id} {
-      allow read: if true;
-      allow write: if request.auth != null;
-    }
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+};
 
-    // Public read-only: drug cache (AI-generated drug info)
-    match /drugCache/{id} {
-      allow read: if true;
-      allow write: if request.auth != null;
-    }
+const app = initializeApp(firebaseConfig);
 
-    // Users: only the owner can read/write their data
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-
-      match /plans/{planId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
-      }
-
-      match /drugs/{drugId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
-      }
-    }
-  }
-}
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const googleProvider = new GoogleAuthProvider();
+export default app;
