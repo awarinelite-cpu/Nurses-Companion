@@ -33,21 +33,26 @@ export default function App() {
         onLibraryClick={openLibrary}
         showToast={showToast}
       />
-
       <Routes>
-        <Route path="/" element={<DrugSearchPage showToast={showToast} onLoginNeeded={() => setAuthModal(true)} />} />
+        {/* Home = Care Plan hero (matches screenshot) */}
+        <Route path="/" element={<CarePlanView showToast={showToast} onLoginNeeded={() => setAuthModal(true)} />} />
         <Route path="/care-plan" element={<CarePlanView showToast={showToast} onLoginNeeded={() => setAuthModal(true)} />} />
         <Route path="/plan/:diagnosis" element={<CarePlanView showToast={showToast} onLoginNeeded={() => setAuthModal(true)} />} />
+
+        {/* Drug search at /drugs */}
+        <Route path="/drugs" element={<DrugSearchPage showToast={showToast} onLoginNeeded={() => setAuthModal(true)} />} />
         <Route path="/drug/:drugName" element={<DrugDetailView showToast={showToast} onLoginNeeded={() => setAuthModal(true)} />} />
+
         <Route path="/labs" element={<LabGuide />} />
         <Route path="/saved" element={<SavedRecordsPage showToast={showToast} />} />
+
+        {/* Catch-all */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
       {authModal && (
         <AuthModal onClose={() => setAuthModal(false)} showToast={showToast} />
       )}
-
       {libraryPanel && (
         <LibraryPanel
           defaultTab={libraryTab}
@@ -55,7 +60,6 @@ export default function App() {
           showToast={showToast}
         />
       )}
-
       {toast && <Toast message={toast} />}
     </div>
   );
