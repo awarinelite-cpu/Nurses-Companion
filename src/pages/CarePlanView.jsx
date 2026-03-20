@@ -2,7 +2,6 @@ import { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { autosaveCarePlan } from '../services/autosave';
 
-// ─── NANDA-I Diagnoses ────────────────────────────────────────────────────────
 const NANDA_DIAGNOSES = [
   'Acute Pain', 'Chronic Pain', 'Risk for Infection', 'Anxiety',
   'Impaired Physical Mobility', 'Deficient Knowledge', 'Excess Fluid Volume',
@@ -32,7 +31,6 @@ const QUICK_CHIPS = [
   'Excess Fluid Volume', 'Fatigue', 'Ineffective Airway Clearance',
 ];
 
-// ─── Streaming helper ─────────────────────────────────────────────────────────
 async function streamCarePlan(diagnosis, onChunk, onDone, onError) {
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -55,12 +53,10 @@ Do NOT include disclaimers or preambles — go straight into the care plan.`,
         messages: [{ role: 'user', content: `Generate a comprehensive nursing care plan for: "${diagnosis}"` }],
       }),
     });
-
     if (!response.ok) {
       const err = await response.json();
       throw new Error(err?.error?.message || 'API error');
     }
-
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -86,7 +82,6 @@ Do NOT include disclaimers or preambles — go straight into the care plan.`,
   }
 }
 
-// ─── Markdown renderer ────────────────────────────────────────────────────────
 const SECTION_COLORS = {
   'NURSING DIAGNOSIS': '#e05a5a',
   'GOALS / EXPECTED OUTCOMES': '#4a9ba8',
@@ -152,7 +147,6 @@ function printCarePlan(diagnosis, content) {
   win.document.close();
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
 export default function CarePlanView({ showToast, onLoginNeeded }) {
   const navigate = useNavigate();
   const [diagnosis, setDiagnosis] = useState('');
@@ -183,7 +177,6 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
     timerRef.current = setInterval(() => {
       setElapsed(((Date.now() - startRef.current) / 1000).toFixed(1));
     }, 100);
-
     streamCarePlan(
       term,
       (chunk) => {
@@ -236,12 +229,11 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
         .nav-btn-inactive:hover { background:rgba(255,255,255,0.25) !important; }
       `}</style>
 
-      {/* ── Hero ─────────────────────────────────────────────────────── */}
       <div style={{ textAlign: 'center', padding: '48px 20px 36px' }}>
 
-        {/* Top badge */}
+        {/* Badge */}
         <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 0,
+          display: 'inline-flex', alignItems: 'center',
           background: 'rgba(255,255,255,0.16)', backdropFilter: 'blur(12px)',
           border: '1px solid rgba(255,255,255,0.32)', borderRadius: 30,
           padding: '9px 24px', marginBottom: 30,
@@ -265,26 +257,25 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
         </h1>
 
         {/* Subtitle */}
-        <p style={{
-          fontFamily: "'Times New Roman', serif", fontSize: 16,
-          color: 'rgba(255,255,255,0.68)', margin: '0 0 38px',
-        }}>
+        <p style={{ fontFamily: "'Times New Roman', serif", fontSize: 16, color: 'rgba(255,255,255,0.68)', margin: '0 0 38px' }}>
           Generate evidence-based nursing care plans · Drug reference · Clinical lab guide
         </p>
 
         {/* Nav pills */}
         <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 42, flexWrap: 'wrap' }}>
+          {/* Care Plans — active */}
           <button style={{
             background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(12px)',
             border: '1px solid rgba(255,255,255,0.5)', borderRadius: 30,
             padding: '12px 30px', fontSize: 14,
             fontFamily: "'Times New Roman', serif", fontWeight: 700,
-            color: '#1e6a72', cursor: 'pointer',
+            color: '#1e6a72', cursor: 'default',
             boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
           }}>📋 Care Plans</button>
 
+          {/* Drug Reference — navigates to /drugs */}
           <button
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/drugs')}
             className="nav-btn-inactive"
             style={{
               background: 'rgba(255,255,255,0.14)', backdropFilter: 'blur(12px)',
@@ -295,6 +286,7 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
             }}
           >💊 Drug Reference</button>
 
+          {/* Lab Guide */}
           <button
             onClick={() => navigate('/labs')}
             className="nav-btn-inactive"
@@ -308,7 +300,7 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
           >🔬 Lab Guide</button>
         </div>
 
-        {/* Input box */}
+        {/* Input */}
         <div style={{ maxWidth: 640, margin: '0 auto', position: 'relative' }}>
           <div style={{
             display: 'flex', alignItems: 'center',
@@ -336,9 +328,7 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
               onClick={() => generate()}
               disabled={isRunning || !diagnosis.trim()}
               style={{
-                background: diagnosis.trim() && !isRunning
-                  ? 'linear-gradient(135deg,#4a9ba8,#2d7a87)'
-                  : 'rgba(74,155,168,0.3)',
+                background: diagnosis.trim() && !isRunning ? 'linear-gradient(135deg,#4a9ba8,#2d7a87)' : 'rgba(74,155,168,0.3)',
                 color: '#fff', border: 'none', borderRadius: 12,
                 padding: '12px 22px', fontSize: 14,
                 fontFamily: "'Times New Roman', serif", fontWeight: 700,
@@ -353,7 +343,7 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
             </button>
           </div>
 
-          {/* NANDA-I Browse */}
+          {/* NANDA Browse */}
           <div style={{ position: 'relative' }}>
             <button
               onClick={() => setShowNanda(v => !v)}
@@ -422,7 +412,7 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
           </div>
         </div>
 
-        {/* Quick chips — only when idle */}
+        {/* Quick chips */}
         {status === 'idle' && (
           <div style={{ maxWidth: 700, margin: '22px auto 0', display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center' }}>
             {QUICK_CHIPS.map(chip => (
@@ -445,7 +435,7 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
         )}
       </div>
 
-      {/* ── Results ───────────────────────────────────────────────────── */}
+      {/* Results */}
       {status !== 'idle' && (
         <div ref={resultRef} style={{ maxWidth: 760, margin: '0 auto 60px', padding: '0 16px' }}>
           <div style={{
@@ -456,7 +446,6 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
             boxShadow: '0 4px 32px rgba(0,0,0,0.10)',
             animation: 'fadeUp 0.25s ease both',
           }}>
-            {/* Header row */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 8 }}>
               <div style={{ fontFamily: "'Times New Roman', serif", fontWeight: 700, color: '#1e2d2f', fontSize: 17 }}>
                 {diagnosis || 'Care Plan'}
@@ -475,18 +464,13 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
                 </div>
                 {isDone && (
                   <>
-                    <button onClick={() => printCarePlan(diagnosis, content)} style={{ background: 'none', border: '1px solid rgba(74,155,168,0.3)', borderRadius: 10, color: '#4a9ba8', fontSize: 11, cursor: 'pointer', padding: '4px 12px', fontFamily: "'Fira Code', monospace" }}>
-                      🖨 Print
-                    </button>
-                    <button onClick={reset} style={{ background: 'none', border: '1px solid rgba(139,99,71,0.3)', borderRadius: 10, color: '#8b6347', fontSize: 11, cursor: 'pointer', padding: '4px 12px', fontFamily: "'Fira Code', monospace" }}>
-                      ✕ Clear
-                    </button>
+                    <button onClick={() => printCarePlan(diagnosis, content)} style={{ background: 'none', border: '1px solid rgba(74,155,168,0.3)', borderRadius: 10, color: '#4a9ba8', fontSize: 11, cursor: 'pointer', padding: '4px 12px', fontFamily: "'Fira Code', monospace" }}>🖨 Print</button>
+                    <button onClick={reset} style={{ background: 'none', border: '1px solid rgba(139,99,71,0.3)', borderRadius: 10, color: '#8b6347', fontSize: 11, cursor: 'pointer', padding: '4px 12px', fontFamily: "'Fira Code', monospace" }}>✕ Clear</button>
                   </>
                 )}
               </div>
             </div>
 
-            {/* Skeleton */}
             {status === 'loading' && (
               <div>
                 {[['38%',13],['100%',10],['90%',10],['75%',10],['42%',13],['100%',10],['85%',10],['35%',13],['100%',10],['88%',10],['65%',10]].map(([w,h],i) => (
@@ -495,7 +479,6 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
               </div>
             )}
 
-            {/* Content */}
             {content && (
               <div>
                 {renderCarePlan(content)}
@@ -505,15 +488,12 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
               </div>
             )}
 
-            {/* Error */}
             {status === 'error' && (
               <div style={{ textAlign: 'center', padding: '32px 0' }}>
                 <div style={{ fontSize: 32, marginBottom: 10 }}>⚠️</div>
                 <div style={{ fontFamily: "'Times New Roman', serif", fontWeight: 700, color: '#1e2d2f', marginBottom: 6 }}>Generation failed</div>
                 <div style={{ fontSize: 12, color: '#7a9ea4', marginBottom: 18 }}>{error}</div>
-                <button onClick={() => generate()} style={{ background: '#4a9ba8', color: '#fff', border: 'none', borderRadius: 12, padding: '10px 24px', fontSize: 13, cursor: 'pointer', fontFamily: "'Times New Roman', serif", fontWeight: 700 }}>
-                  Try Again
-                </button>
+                <button onClick={() => generate()} style={{ background: '#4a9ba8', color: '#fff', border: 'none', borderRadius: 12, padding: '10px 24px', fontSize: 13, cursor: 'pointer', fontFamily: "'Times New Roman', serif", fontWeight: 700 }}>Try Again</button>
               </div>
             )}
           </div>
