@@ -36,6 +36,7 @@ export default function App() {
 
       <Routes>
         <Route path="/" element={<HomePage showToast={showToast} onLoginNeeded={() => setAuthModal(true)} />} />
+        <Route path="/care-plan" element={<CarePlanView showToast={showToast} onLoginNeeded={() => setAuthModal(true)} />} />
         <Route path="/plan/:diagnosis" element={<CarePlanView showToast={showToast} onLoginNeeded={() => setAuthModal(true)} />} />
         <Route path="/drug/:drugName" element={<DrugDetailView showToast={showToast} onLoginNeeded={() => setAuthModal(true)} />} />
         <Route path="/labs" element={<LabGuide />} />
