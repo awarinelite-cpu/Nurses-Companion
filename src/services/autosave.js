@@ -3,7 +3,7 @@
 // Saves to BOTH Firestore and Firebase Realtime Database
 // simultaneously, fire-and-forget, survives page exit.
 // ============================================================
-import { db, rtdb } from '../firebase'; // src/services/autosave.js → src/firebase.js
+import { db, rtdb } from '../firebase/config';
 import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, set as rtdbSet } from 'firebase/database';
 
