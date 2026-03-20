@@ -20,7 +20,9 @@ export default function Header({ onLoginClick, onLibraryClick, showToast }) {
       padding: '14px 24px',
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       boxShadow: '0 2px 24px rgba(0,0,0,0.08)',
+      flexWrap: 'wrap', gap: 10,
     }}>
+
       {/* Logo */}
       <div
         onClick={() => navigate('/')}
@@ -43,7 +45,9 @@ export default function Header({ onLoginClick, onLibraryClick, showToast }) {
       </div>
 
       {/* Right side */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+
+        {/* AI badge */}
         <span style={{
           background: 'rgba(74,140,90,0.1)', color: '#4a8c5a',
           border: '1px solid rgba(74,140,90,0.25)',
@@ -51,14 +55,29 @@ export default function Header({ onLoginClick, onLibraryClick, showToast }) {
           fontSize: 11, fontFamily: "'Fira Code', monospace",
         }}>AI-Powered</span>
 
+        {/* Care Plan */}
+        <button
+          onClick={() => navigate('/care-plan')}
+          style={outlineBtn}
+        >📋 Care Plan</button>
+
+        {/* Lab Guide */}
         <button
           onClick={() => navigate('/labs')}
           style={outlineBtn}
         >🔬 Lab Guide</button>
 
+        {/* Saved Records */}
+        <button
+          onClick={() => navigate('/saved')}
+          style={outlineBtn}
+        >💾 Saved</button>
+
         {user ? (
           <>
-            <button onClick={() => onLibraryClick('plans')} style={outlineBtn}>📚 My Library</button>
+            <button onClick={() => onLibraryClick('plans')} style={outlineBtn}>
+              📚 My Library
+            </button>
             <span style={{ fontSize: 13, color: '#3d5a5f', fontFamily: "'Fira Code', monospace" }}>
               {user.displayName || user.email?.split('@')[0]}
             </span>
