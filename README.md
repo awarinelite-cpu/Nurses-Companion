@@ -5,6 +5,7 @@ Evidence-based nursing care plan generator, drug reference, and clinical lab gui
 ## Features
 
 - **Care Plan Generator** — AI-generated NANDA-I compliant nursing care plans with defining characteristics, SMART goals, interventions + rationales, and evaluation criteria
+- 
 - **Drug Reference** — Full drug profiles: dose, MOA, indications, side effects, contraindications, adverse effects, nursing considerations. AI-generated and Firestore-cached
 - **Clinical Lab Guide** — 30+ lab panels with 150+ parameters covering Hematology, Chemistry, Electrolytes, ABG, Thyroid, Cardiac, Serology, Hormonal, Microbiology and more. Each with normal ranges, low/high causes, and solutions
 - **My Library** — Save care plans and drugs to your personal Firestore library
