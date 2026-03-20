@@ -46,7 +46,7 @@ Keep each section brief (2-4 bullet points). Use • for bullets. Be clinical an
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop(); // keep incomplete line
+      buffer = lines.pop();
 
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
@@ -147,13 +147,14 @@ function Skeleton() {
 }
 
 // ─── Main component ──────────────────────────────────────────────────────────
-export default function DrugDetailView() {
-  const { name } = useParams();
+export default function DrugDetailView({ showToast, onLoginNeeded }) {
+  // FIX: param key now matches the route definition "/drug/:drugName"
+  const { drugName: rawDrug } = useParams();
   const navigate = useNavigate();
-  const drugName = decodeURIComponent(name || '');
+  const drug = decodeURIComponent(rawDrug || '');
 
   const [content, setContent] = useState('');
-  const [status, setStatus] = useState('loading'); // loading | streaming | done | error
+  const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef(Date.now());
@@ -165,13 +166,12 @@ export default function DrugDetailView() {
     setError('');
     startRef.current = Date.now();
 
-    // Start elapsed timer
     timerRef.current = setInterval(() => {
       setElapsed(((Date.now() - startRef.current) / 1000).toFixed(1));
     }, 100);
 
     streamDrugProfile(
-      drugName,
+      drug,
       (chunk) => {
         setStatus('streaming');
         setContent(prev => prev + chunk);
@@ -181,10 +181,9 @@ export default function DrugDetailView() {
         const secs = ((Date.now() - startRef.current) / 1000).toFixed(1);
         setElapsed(secs);
         setStatus('done');
-        // 🔥 Autosave full profile when streaming completes
         setContent(finalContent => {
-          autosaveDrugProfile({ drugName, content: finalContent, elapsedSecs: parseFloat(secs) });
-          return finalContent; // keep state unchanged
+          autosaveDrugProfile({ drugName: drug, content: finalContent, elapsedSecs: parseFloat(secs) });
+          return finalContent;
         });
       },
       (msg) => {
@@ -193,7 +192,7 @@ export default function DrugDetailView() {
         setStatus('error');
       }
     );
-  }, [drugName]);
+  }, [drug]);
 
   useEffect(() => {
     load();
@@ -251,7 +250,7 @@ export default function DrugDetailView() {
               fontFamily: "'Times New Roman', serif", fontSize: 26,
               fontWeight: 700, color: '#1e2d2f', margin: 0, lineHeight: 1.2,
             }}>
-              {drugName}
+              {drug}
             </h1>
           </div>
 
@@ -305,14 +304,11 @@ export default function DrugDetailView() {
           </div>
         )}
 
-        {/* Skeleton shown only before first chunk */}
         {isLoading && <Skeleton />}
 
-        {/* Streaming / done content */}
         {content && (
           <div>
             {renderMarkdown(content)}
-            {/* Blinking cursor while streaming */}
             {status === 'streaming' && (
               <span style={{
                 display: 'inline-block', width: 2, height: 15,
@@ -324,7 +320,7 @@ export default function DrugDetailView() {
         )}
       </div>
 
-      {/* Reload button after done */}
+      {/* Reload button */}
       {isDone && (
         <div style={{ textAlign: 'center', marginTop: 16 }}>
           <button onClick={load} style={{
