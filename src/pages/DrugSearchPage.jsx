@@ -213,7 +213,7 @@ Example: Input "Augmentin" → ["Co-Amoxiclav (Amoxicillin-Clavulanate)", "Amoxi
 }
 
 // ─── Main Component ──────────────────────────────────────────
-export default function HomePage() {
+export default function DrugSearchPage() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searched, setSearched] = useState(false);
