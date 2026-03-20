@@ -5,6 +5,9 @@ import { db } from '../firebase/config';
 import { useAuth } from '../hooks/useAuth';
 import { ALL_DRUGS } from '../data/drugClasses';
 
+// In-memory session cache
+const sessionCache = {};
+
 export default function DrugDetailView({ showToast, onLoginNeeded }) {
   const { drugName } = useParams();
   const name = decodeURIComponent(drugName);
@@ -12,6 +15,7 @@ export default function DrugDetailView({ showToast, onLoginNeeded }) {
   const navigate = useNavigate();
   const [drug, setDrug] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState('');
   const [error, setError] = useState('');
   const [autoSaved, setAutoSaved] = useState(false);
   const autoSaveRan = useRef(false);
@@ -22,7 +26,6 @@ export default function DrugDetailView({ showToast, onLoginNeeded }) {
     fetchDrug();
   }, [name]);
 
-  // Auto-save to personal library once drug loads and user is signed in
   useEffect(() => {
     if (drug && user && !autoSaveRan.current) {
       autoSaveRan.current = true;
@@ -33,45 +36,55 @@ export default function DrugDetailView({ showToast, onLoginNeeded }) {
   async function fetchDrug() {
     setLoading(true); setError(''); setDrug(null);
 
-    // 1. Check Firestore cache
+    // 1. Session memory cache — instant
+    if (sessionCache[name]) {
+      setDrug(sessionCache[name]);
+      setLoading(false);
+      return;
+    }
+
+    // 2. Firestore cache
+    setLoadingMsg('Checking cache…');
     try {
       const q = query(collection(db, 'drugCache'), where('name', '==', name));
       const snap = await getDocs(q);
-      if (!snap.empty) { setDrug(snap.docs[0].data()); setLoading(false); return; }
+      if (!snap.empty) {
+        const cached = snap.docs[0].data();
+        sessionCache[name] = cached;
+        setDrug(cached);
+        setLoading(false);
+        return;
+      }
     } catch {}
 
-    // 2. Find class context
+    // 3. AI generation — fast model + tight prompt
+    setLoadingMsg('Loading drug reference…');
     const found = ALL_DRUGS.find(d => d.name.toLowerCase() === name.toLowerCase());
-
-    // 3. Generate with AI
     try {
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 2500,
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1200,
           messages: [{ role: 'user', content: buildDrugPrompt(name, found?.class) }],
         }),
       });
       const data = await res.json();
       const text = data.content?.find(b => b.type === 'text')?.text || '';
       const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('Invalid AI response');
+      if (!jsonMatch) throw new Error('Invalid response');
       const parsed = JSON.parse(jsonMatch[0]);
-      const drugData = {
-        ...parsed,
-        name,
-        class: found?.class || parsed.drugClass,
-        savedAt: new Date().toISOString(),
-      };
+      const drugData = { ...parsed, name, class: found?.class || parsed.drugClass, savedAt: new Date().toISOString() };
+
+      sessionCache[name] = drugData;
       setDrug(drugData);
 
-      // Cache globally (no auth needed)
-      try { await addDoc(collection(db, 'drugCache'), drugData); } catch {}
+      // Cache globally in background
+      addDoc(collection(db, 'drugCache'), drugData).catch(() => {});
 
     } catch (e) {
-      setError('Could not load drug information. Please check your API configuration and try again.');
+      setError('Could not load drug information. Please try again.');
       console.error(e);
     }
     setLoading(false);
@@ -80,22 +93,15 @@ export default function DrugDetailView({ showToast, onLoginNeeded }) {
   async function saveToLibrary() {
     if (!user) return;
     try {
-      // Check if already saved to avoid duplicates
-      const q = query(
-        collection(db, 'users', user.uid, 'drugs'),
-        where('name', '==', name)
-      );
+      const q = query(collection(db, 'users', user.uid, 'drugs'), where('name', '==', name));
       const existing = await getDocs(q);
-      if (!existing.empty) return; // already in library
-
+      if (!existing.empty) return;
       await addDoc(collection(db, 'users', user.uid, 'drugs'), {
-        name,
-        drugClass: drug?.drugClass || drug?.class || '',
-        savedAt: new Date().toISOString(),
+        name, drugClass: drug?.drugClass || drug?.class || '', savedAt: new Date().toISOString(),
       });
       setAutoSaved(true);
       showToast('💊 Drug auto-saved to your library');
-    } catch { /* non-fatal */ }
+    } catch {}
   }
 
   return (
@@ -103,28 +109,19 @@ export default function DrugDetailView({ showToast, onLoginNeeded }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 28 }}>
         <button onClick={() => navigate(-1)} style={backBtn}>← Back</button>
         <h2 style={{ fontFamily: "'Times New Roman', serif", fontWeight: 700, fontSize: 'clamp(18px, 3vw, 26px)', color: '#1e2d2f', flex: 1 }}>{name}</h2>
-        {/* Auto-saved indicator */}
         {autoSaved && (
           <span style={{ fontSize: 11, fontFamily: "'Fira Code', monospace", color: '#4a8c5a', background: 'rgba(74,140,90,0.1)', border: '1px solid rgba(74,140,90,0.3)', borderRadius: 20, padding: '5px 12px', whiteSpace: 'nowrap' }}>
             ✅ Saved to library
           </span>
         )}
         {drug && !user && (
-          <button
-            onClick={onLoginNeeded}
-            style={{ ...saveBtn, background: 'rgba(74,155,168,0.12)', color: '#2d7a87', borderColor: 'rgba(74,155,168,0.3)' }}
-          >
+          <button onClick={onLoginNeeded} style={{ ...saveBtn, background: 'rgba(74,155,168,0.12)', color: '#2d7a87', borderColor: 'rgba(74,155,168,0.3)' }}>
             🔐 Sign in to save
           </button>
         )}
       </div>
 
-      {loading && (
-        <div style={{ textAlign: 'center', padding: '80px 0' }}>
-          <div style={{ width: 44, height: 44, border: '3px solid rgba(255,255,255,0.2)', borderTopColor: '#8b6347', borderRadius: '50%', animation: 'spin 0.75s linear infinite', margin: '0 auto 16px' }} />
-          <p style={{ color: '#1e2d2f', fontSize: 14, fontWeight: 700 }}>Loading drug reference…</p>
-        </div>
-      )}
+      {loading && <LoadingCard message={loadingMsg} />}
 
       {error && (
         <div style={{ background: 'rgba(192,84,75,0.1)', border: '1px solid rgba(192,84,75,0.3)', borderRadius: 14, padding: 24, color: '#c0544b', textAlign: 'center' }}>
@@ -139,13 +136,34 @@ export default function DrugDetailView({ showToast, onLoginNeeded }) {
   );
 }
 
+function LoadingCard({ message }) {
+  const steps = ['Checking cache…', 'Loading drug reference…'];
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.82)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.6)', borderRadius: 16, padding: 40, textAlign: 'center', boxShadow: '0 2px 20px rgba(0,0,0,0.08)' }}>
+      <div style={{ width: 44, height: 44, border: '3px solid rgba(139,99,71,0.2)', borderTopColor: '#8b6347', borderRadius: '50%', animation: 'spin 0.75s linear infinite', margin: '0 auto 20px' }} />
+      <div style={{ fontSize: 14, fontWeight: 700, color: '#1e2d2f', marginBottom: 16 }}>{message || 'Loading…'}</div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+        {steps.map((step, i) => (
+          <div key={i} style={{
+            fontSize: 11, fontFamily: "'Fira Code', monospace",
+            padding: '4px 12px', borderRadius: 20,
+            background: message === step ? 'rgba(139,99,71,0.12)' : 'rgba(139,99,71,0.04)',
+            color: message === step ? '#6b4a32' : '#7a9ea4',
+            border: `1px solid ${message === step ? 'rgba(139,99,71,0.35)' : 'rgba(139,99,71,0.1)'}`,
+            transition: 'all 0.3s',
+          }}>{step}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DrugDisplay({ drug: d }) {
   const [activeTab, setActiveTab] = useState(0);
   const routes = d.routeDosages || [];
 
   return (
     <div style={{ animation: 'fadeUp 0.4s ease both' }}>
-      {/* Banner */}
       <div style={{ ...glass(), borderLeft: '4px solid #8b6347', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16, marginBottom: 20 }}>
         <div>
           <div style={{ fontSize: 10, fontFamily: "'Fira Code', monospace", color: '#8b6347', letterSpacing: 2.5, textTransform: 'uppercase', marginBottom: 6 }}>💊 Drug Reference</div>
@@ -167,7 +185,6 @@ function DrugDisplay({ drug: d }) {
         </div>
       </div>
 
-      {/* MOA */}
       {d.modeOfAction && (
         <div style={{ ...glass(), borderLeft: '3px solid #4a9ba8', marginBottom: 14 }}>
           <CardHead icon="⚙️" title="Mechanism of Action" />
@@ -175,7 +192,6 @@ function DrugDisplay({ drug: d }) {
         </div>
       )}
 
-      {/* Route dosages with tabs */}
       {routes.length > 0 && (
         <div style={{ ...glass(), marginBottom: 14 }}>
           <CardHead icon="⚖️" title="Dosage by Route of Administration" />
@@ -214,19 +230,16 @@ function DrugDisplay({ drug: d }) {
         </div>
       )}
 
-      {/* Indications + Side Effects */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginBottom: 14 }}>
         <InfoCard icon="✅" title="Indications / Uses" items={d.indications} dotColor="#4a8c5a" />
         <InfoCard icon="⚠️" title="Side Effects" items={d.sideEffects} dotColor="#d4912a" border="3px solid #d4912a" />
       </div>
 
-      {/* Contraindications + Adverse Effects */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginBottom: 14 }}>
         <InfoCard icon="🚫" title="Contraindications" items={d.contraindications} dotColor="#c0544b" border="3px solid #c0544b" />
         <InfoCard icon="🆘" title="Adverse Effects" items={d.adverseEffects} dotColor="#c0544b" border="3px solid #c0544b" />
       </div>
 
-      {/* Drug Interactions */}
       {d.interactions?.length > 0 && (
         <div style={{ ...glass(), borderLeft: '3px solid #d4912a', marginBottom: 14 }}>
           <CardHead icon="🔄" title="Drug Interactions" />
@@ -240,7 +253,6 @@ function DrugDisplay({ drug: d }) {
         </div>
       )}
 
-      {/* Nursing Considerations */}
       {d.nursingConsiderations?.length > 0 && (
         <div style={{ ...glass(), borderLeft: '3px solid #6b8f71', marginBottom: 14 }}>
           <CardHead icon="🩺" title="Nursing Considerations" />
@@ -254,7 +266,6 @@ function DrugDisplay({ drug: d }) {
         </div>
       )}
 
-      {/* Monitoring */}
       {d.monitoring?.length > 0 && (
         <div style={{ ...glass(), borderLeft: '3px solid #4a9ba8', marginBottom: 14 }}>
           <CardHead icon="📊" title="Monitoring Parameters" />
@@ -319,55 +330,9 @@ function glass(extra = {}) {
 }
 
 function buildDrugPrompt(name, drugClass) {
-  return `Generate a comprehensive nursing drug reference for: "${name}"${drugClass ? ` (${drugClass})` : ''}
-
-Respond ONLY with valid JSON (no markdown, no extra text) in this exact structure:
-{
-  "genericName": "generic/INN name",
-  "drugClass": "pharmacological class",
-  "controlled": "e.g. Schedule 2 Controlled Drug" or null,
-  "pronunciation": "phonetic pronunciation" or null,
-  "modeOfAction": "clear 2-3 sentence mechanism of action explanation",
-  "routeDosages": [
-    {
-      "route": "PO (Oral)",
-      "adultDose": "adult oral dose",
-      "paediatricDose": "mg/kg or age-based paediatric oral dose",
-      "frequency": "frequency e.g. BD, TDS, once daily",
-      "maxDose": "maximum daily dose",
-      "notes": "food interactions, tablet/syrup forms, etc"
-    },
-    {
-      "route": "IV (Intravenous)",
-      "adultDose": "adult IV dose",
-      "paediatricDose": "paediatric IV dose in mg/kg",
-      "frequency": "frequency",
-      "maxDose": "max IV dose",
-      "notes": "infusion rate, dilution fluid, infusion time, compatibility"
-    },
-    {
-      "route": "IM (Intramuscular)",
-      "adultDose": "adult IM dose",
-      "paediatricDose": "paediatric IM dose in mg/kg",
-      "frequency": "frequency",
-      "maxDose": "max IM dose",
-      "notes": "injection site, max volume per site, Z-track if needed"
-    }
-  ],
-  "indications": ["5 indications"],
-  "sideEffects": ["5 common side effects"],
-  "contraindications": ["4 contraindications"],
-  "adverseEffects": ["4 serious adverse effects"],
-  "interactions": ["4 important drug interactions"],
-  "nursingConsiderations": ["5 nursing considerations"],
-  "monitoring": ["3 monitoring parameters"]
-}
-
-RULES:
-- Only include routes that actually exist for this drug
-- Paediatric doses must be weight-based (mg/kg) with age ranges
-- IV notes must include dilution and infusion rate
-- If a route does not apply, omit it from routeDosages entirely`;
+  return `Drug reference for: "${name}"${drugClass ? ` (${drugClass})` : ''}. Reply with ONLY this JSON, no extra text:
+{"genericName":"name","drugClass":"class","controlled":null,"pronunciation":null,"modeOfAction":"2-3 sentence MOA","routeDosages":[{"route":"PO (Oral)","adultDose":"dose","paediatricDose":"mg/kg dose","frequency":"BD/TDS/etc","maxDose":"max/day","notes":"instructions"},{"route":"IV (Intravenous)","adultDose":"dose","paediatricDose":"mg/kg","frequency":"freq","maxDose":"max","notes":"dilution, rate, time"}],"indications":["i1","i2","i3","i4","i5"],"sideEffects":["s1","s2","s3","s4","s5"],"contraindications":["c1","c2","c3","c4"],"adverseEffects":["a1","a2","a3","a4"],"interactions":["d1","d2","d3","d4"],"nursingConsiderations":["n1","n2","n3","n4","n5"],"monitoring":["m1","m2","m3"]}
+Rules: only include routes that exist for this drug. Paediatric doses must be mg/kg with age ranges.`;
 }
 
 const backBtn = {
