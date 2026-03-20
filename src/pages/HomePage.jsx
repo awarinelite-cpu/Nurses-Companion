@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ALL_DIAGNOSES } from '../data/nandaDomains';
-import { ALL_DRUGS } from '../data/drugClasses';
 import NandaBrowse from '../components/NandaBrowse';
-import DrugClassBrowse from '../components/DrugClassBrowse';
+import DrugSearchPage from './DrugSearchPage';
 
 const QUICK_DIAGNOSES = [
   'Acute Pain', 'Risk for Infection', 'Anxiety',
@@ -11,21 +10,12 @@ const QUICK_DIAGNOSES = [
   'Excess Fluid Volume', 'Fatigue', 'Ineffective Airway Clearance',
 ];
 
-const QUICK_DRUGS = [
-  'Paracetamol (Acetaminophen)', 'Metformin', 'Atorvastatin',
-  'Furosemide (Frusemide)', 'Amoxicillin', 'Omeprazole',
-  'Morphine', 'Salbutamol (Albuterol)',
-];
-
 export default function HomePage({ showToast, onLoginNeeded }) {
   const [tab, setTab] = useState('care');
   const [diagInput, setDiagInput] = useState('');
   const [diagSuggestions, setDiagSuggestions] = useState([]);
-  const [drugInput, setDrugInput] = useState('');
-  const [drugSuggestions, setDrugSuggestions] = useState([]);
   const navigate = useNavigate();
   const diagRef = useRef();
-  const drugRef = useRef();
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -44,23 +34,10 @@ export default function HomePage({ showToast, onLoginNeeded }) {
     setDiagSuggestions(results);
   }
 
-  function handleDrugInput(val) {
-    setDrugInput(val);
-    if (val.length < 2) { setDrugSuggestions([]); return; }
-    const results = ALL_DRUGS.filter(d => d.name.toLowerCase().includes(val.toLowerCase())).slice(0, 8);
-    setDrugSuggestions(results);
-  }
-
   function goDiag(dx) {
     setDiagSuggestions([]);
     setDiagInput(dx);
     navigate(`/plan/${encodeURIComponent(dx)}`);
-  }
-
-  function goDrug(name) {
-    setDrugSuggestions([]);
-    setDrugInput(name);
-    navigate(`/drug/${encodeURIComponent(name)}`);
   }
 
   return (
@@ -186,81 +163,7 @@ export default function HomePage({ showToast, onLoginNeeded }) {
         )}
 
         {/* Drug tab */}
-        {tab === 'drug' && (
-          <div style={{ animation: 'fadeUp 0.3s ease both' }}>
-            <div ref={drugRef} style={{ position: 'relative', maxWidth: 600, margin: '0 auto' }}>
-              <div style={{
-                display: 'flex', alignItems: 'center',
-                background: 'rgba(255,255,255,0.82)', border: '1.5px solid rgba(255,255,255,0.6)',
-                borderRadius: 18, padding: '5px 5px 5px 20px',
-                boxShadow: '0 8px 40px rgba(0,0,0,0.18)', backdropFilter: 'blur(20px)',
-              }}>
-                <span style={{ fontSize: 16, opacity: 0.5, marginRight: 10 }}>💊</span>
-                <input
-                  value={drugInput}
-                  onChange={e => handleDrugInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && drugInput.trim() && goDrug(drugInput.trim())}
-                  placeholder="Search drug by name (e.g. Metformin)"
-                  style={{
-                    flex: 1, background: 'transparent', border: 'none', color: '#1e2d2f',
-                    fontSize: 15, fontFamily: "'Times New Roman', serif", fontWeight: 700,
-                    padding: '13px 0', outline: 'none',
-                  }}
-                />
-                {drugInput.trim() && (
-                  <button
-                    onClick={() => goDrug(drugInput.trim())}
-                    style={{
-                      background: 'linear-gradient(135deg, #8b6347, #6b4a32)',
-                      border: 'none', borderRadius: 13, color: '#fff',
-                      padding: '12px 22px', fontSize: 14, fontWeight: 700,
-                      fontFamily: "'Times New Roman', serif", cursor: 'pointer',
-                      boxShadow: '0 4px 16px rgba(139,99,71,0.4)',
-                    }}
-                  >Search →</button>
-                )}
-              </div>
-
-              {drugSuggestions.length > 0 && (
-                <div style={{
-                  position: 'absolute', top: 'calc(100% + 8px)', left: 0, right: 0,
-                  background: 'rgba(255,255,255,0.97)', backdropFilter: 'blur(20px)',
-                  border: '1px solid rgba(255,255,255,0.6)', borderRadius: 14,
-                  overflow: 'hidden', zIndex: 50,
-                  boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
-                }}>
-                  {drugSuggestions.map(d => (
-                    <button
-                      key={d.name}
-                      onClick={() => goDrug(d.name)}
-                      style={{
-                        display: 'flex', alignItems: 'center', width: '100%', textAlign: 'left',
-                        background: 'transparent', border: 'none',
-                        borderBottom: '1px solid rgba(139,99,71,0.1)',
-                        color: '#3d5a5f', padding: '11px 20px',
-                        fontSize: 14, fontFamily: "'Times New Roman', serif", fontWeight: 700,
-                        cursor: 'pointer', gap: 10,
-                      }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(139,99,71,0.06)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                    >
-                      <span style={{ flex: 1 }}>{d.name}</span>
-                      <span style={{ fontSize: 10, color: '#7a9ea4', fontFamily: "'Fira Code', monospace", textTransform: 'uppercase', letterSpacing: 1 }}>{d.subclass}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <DrugClassBrowse />
-
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginTop: 18 }}>
-              {QUICK_DRUGS.map(d => (
-                <button key={d} onClick={() => goDrug(d)} style={{ ...chipStyle, borderColor: 'rgba(139,99,71,0.35)' }}>{d}</button>
-              ))}
-            </div>
-          </div>
-        )}
+        {tab === 'drug' && <DrugSearchPage />}
       </div>
     </main>
   );
