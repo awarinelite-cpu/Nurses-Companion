@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { collection, addDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -11,12 +11,23 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
   const navigate = useNavigate();
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [autoSaved, setAutoSaved] = useState(false);
+  const autoSaveRan = useRef(false);
 
   useEffect(() => {
+    autoSaveRan.current = false;
+    setAutoSaved(false);
     generatePlan();
   }, [dx]);
+
+  // Auto-save to personal library once plan loads and user is signed in
+  useEffect(() => {
+    if (plan && user && !autoSaveRan.current) {
+      autoSaveRan.current = true;
+      saveToLibrary();
+    }
+  }, [plan, user]);
 
   async function generatePlan() {
     setLoading(true);
@@ -36,28 +47,29 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
 
     // 2. Generate with Claude AI
     try {
-      const prompt = buildPrompt(dx);
       const res = await fetch('/api/generate', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 1800,
-          messages: [{ role: 'user', content: prompt }],
+          messages: [{ role: 'user', content: buildPrompt(dx) }],
         }),
       });
       const data = await res.json();
       const text = data.content?.find(b => b.type === 'text')?.text || '';
-
-      // Parse JSON from response
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('Invalid AI response');
       const parsed = JSON.parse(jsonMatch[0]);
       setPlan(parsed);
 
-      // Cache in Firestore (best-effort)
+      // Cache globally (no auth needed)
       try {
-        await addDoc(collection(db, 'carePlanCache'), { diagnosis: dx, plan: parsed, createdAt: new Date().toISOString() });
+        await addDoc(collection(db, 'carePlanCache'), {
+          diagnosis: dx,
+          plan: parsed,
+          createdAt: new Date().toISOString(),
+        });
       } catch { /* non-fatal */ }
 
     } catch (e) {
@@ -67,18 +79,24 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
     setLoading(false);
   }
 
-  async function savePlan() {
-    if (!user) { onLoginNeeded(); return; }
-    setSaving(true);
+  async function saveToLibrary() {
+    if (!user) return;
     try {
+      // Check if already saved to avoid duplicates
+      const q = query(
+        collection(db, 'users', user.uid, 'plans'),
+        where('diagnosis', '==', dx)
+      );
+      const existing = await getDocs(q);
+      if (!existing.empty) return; // already in library
+
       await addDoc(collection(db, 'users', user.uid, 'plans'), {
-        diagnosis: dx, savedAt: new Date().toISOString(),
+        diagnosis: dx,
+        savedAt: new Date().toISOString(),
       });
-      showToast('💚 Care plan saved to your library!');
-    } catch {
-      showToast('❌ Save failed, please try again');
-    }
-    setSaving(false);
+      setAutoSaved(true);
+      showToast('📄 Care plan auto-saved to your library');
+    } catch { /* non-fatal */ }
   }
 
   return (
@@ -89,9 +107,18 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
         <h2 style={{ fontFamily: "'Times New Roman', serif", fontWeight: 700, fontSize: 'clamp(18px, 3vw, 26px)', color: '#1e2d2f', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {dx}
         </h2>
-        {plan && (
-          <button onClick={savePlan} disabled={saving} style={saveBtn}>
-            {saving ? '⏳ Saving…' : '💾 Save Plan'}
+        {/* Auto-saved indicator */}
+        {autoSaved && (
+          <span style={{ fontSize: 11, fontFamily: "'Fira Code', monospace", color: '#4a8c5a', background: 'rgba(74,140,90,0.1)', border: '1px solid rgba(74,140,90,0.3)', borderRadius: 20, padding: '5px 12px', whiteSpace: 'nowrap' }}>
+            ✅ Saved to library
+          </span>
+        )}
+        {plan && !user && (
+          <button
+            onClick={onLoginNeeded}
+            style={{ ...saveBtn, background: 'rgba(74,155,168,0.12)', color: '#2d7a87', borderColor: 'rgba(74,155,168,0.3)' }}
+          >
+            🔐 Sign in to save
           </button>
         )}
       </div>
@@ -113,7 +140,6 @@ export default function CarePlanView({ showToast, onLoginNeeded }) {
         </div>
       )}
 
-      {/* Plan output */}
       {plan && <PlanDisplay plan={plan} diagnosis={dx} />}
     </div>
   );
@@ -144,7 +170,6 @@ function PlanDisplay({ plan, diagnosis }) {
 
       {/* 2-col grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, marginBottom: 16 }}>
-        {/* Defining Characteristics */}
         <Section icon="🔍" title="Defining Characteristics / Evidence">
           <ul style={{ listStyle: 'none' }}>
             {(p.definingCharacteristics || p.evidence || []).map((item, i) => (
@@ -155,7 +180,6 @@ function PlanDisplay({ plan, diagnosis }) {
           </ul>
         </Section>
 
-        {/* Goals */}
         <Section icon="🎯" title="Expected Outcomes / Goals">
           {(p.goals || []).map((g, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', borderBottom: '1px solid rgba(74,155,168,0.08)' }}>
@@ -166,7 +190,7 @@ function PlanDisplay({ plan, diagnosis }) {
         </Section>
       </div>
 
-      {/* Interventions - full width */}
+      {/* Interventions */}
       <div style={{ ...glassCard(), marginBottom: 16 }}>
         <SectionHeader icon="🩺" title="Nursing Interventions" />
         <div style={{ display: 'grid', gap: 12 }}>
