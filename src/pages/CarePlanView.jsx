@@ -116,8 +116,7 @@ function renderCarePlan(text) {
         </div>
       );
     } else if (trimmed.startsWith('• ') || trimmed.startsWith('- ')) {
-      const sectionTitle = currentSection;
-      const color = SECTION_COLORS[sectionTitle] || '#4a9ba8';
+      const color = SECTION_COLORS[currentSection] || '#4a9ba8';
       elements.push(
         <div key={key++} style={{
           display: 'flex', gap: 10, marginBottom: 6,
@@ -223,10 +222,11 @@ const INITIAL_FORM = {
   allergies: '', vitals: '', notes: '',
 };
 
-export default function CarePlanView() {
+// FIX: now accepts showToast and onLoginNeeded props from App.jsx
+export default function CarePlanView({ showToast, onLoginNeeded }) {
   const [form, setForm] = useState(INITIAL_FORM);
   const [content, setContent] = useState('');
-  const [status, setStatus] = useState('idle'); // idle | loading | streaming | done | error
+  const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef(Date.now());
@@ -253,21 +253,22 @@ export default function CarePlanView() {
       form,
       (chunk) => {
         setStatus('streaming');
-        setContent(prev => prev + chunk);
-        // Auto-scroll to results on first chunk
-        if (!content) {
-          setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
-        }
+        setContent(prev => {
+          // Auto-scroll to results on very first chunk
+          if (!prev) {
+            setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+          }
+          return prev + chunk;
+        });
       },
       () => {
         clearInterval(timerRef.current);
         const secs = ((Date.now() - startRef.current) / 1000).toFixed(1);
         setElapsed(secs);
         setStatus('done');
-        // 🔥 Autosave care plan the moment generation completes
         setContent(finalContent => {
           autosaveCarePlan({ formData: form, content: finalContent, elapsedSecs: parseFloat(secs) });
-          return finalContent; // keep state unchanged
+          return finalContent;
         });
       },
       (msg) => {
@@ -276,7 +277,7 @@ export default function CarePlanView() {
         setStatus('error');
       }
     );
-  }, [form, content]);
+  }, [form]);
 
   const reset = () => {
     clearInterval(timerRef.current);
@@ -387,7 +388,7 @@ export default function CarePlanView() {
       </div>
 
       {/* Results */}
-      {(status !== 'idle') && (
+      {status !== 'idle' && (
         <div ref={resultRef} style={{
           background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(20px)',
           border: '1px solid rgba(255,255,255,0.6)',
