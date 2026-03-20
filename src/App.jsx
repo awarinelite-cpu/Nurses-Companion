@@ -4,7 +4,7 @@ import Header from './components/Header';
 import AuthModal from './components/AuthModal';
 import LibraryPanel from './components/LibraryPanel';
 import Toast from './components/Toast';
-import HomePage from './pages/HomePage';
+import DrugSearchPage from './pages/DrugSearchPage';
 import CarePlanView from './pages/CarePlanView';
 import DrugDetailView from './pages/DrugDetailView';
 import LabGuide from './pages/LabGuide';
@@ -35,7 +35,7 @@ export default function App() {
       />
 
       <Routes>
-        <Route path="/" element={<HomePage showToast={showToast} onLoginNeeded={() => setAuthModal(true)} />} />
+        <Route path="/" element={<DrugSearchPage showToast={showToast} onLoginNeeded={() => setAuthModal(true)} />} />
         <Route path="/care-plan" element={<CarePlanView showToast={showToast} onLoginNeeded={() => setAuthModal(true)} />} />
         <Route path="/plan/:diagnosis" element={<CarePlanView showToast={showToast} onLoginNeeded={() => setAuthModal(true)} />} />
         <Route path="/drug/:drugName" element={<DrugDetailView showToast={showToast} onLoginNeeded={() => setAuthModal(true)} />} />
