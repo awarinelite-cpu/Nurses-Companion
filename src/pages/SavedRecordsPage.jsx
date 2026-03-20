@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db } from '../firebase'; // adjust to your firebase init path
+import { db } from '../firebase/config';
 import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
 
 // ─── Tab config ───────────────────────────────────────────────
