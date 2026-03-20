@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
-export default function Header({ onLoginClick, onLibraryClick, showToast }) {
+export default function Header({ onLoginClick, showToast }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -22,7 +22,7 @@ export default function Header({ onLoginClick, onLibraryClick, showToast }) {
       boxShadow: '0 2px 24px rgba(0,0,0,0.08)',
       flexWrap: 'wrap', gap: 10,
     }}>
-      {/* Logo */}
+      {/* Logo — goes to home (Care Plan) */}
       <div
         onClick={() => navigate('/')}
         style={{ display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}
@@ -49,9 +49,8 @@ export default function Header({ onLoginClick, onLibraryClick, showToast }) {
         </div>
       </div>
 
-      {/* Right side — matches screenshot exactly */}
+      {/* Right: AI-Powered · Lab Guide · Sign in */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        {/* AI-Powered badge */}
         <span style={{
           background: 'rgba(74,155,168,0.08)', color: '#2d7a87',
           border: '1px solid rgba(74,155,168,0.28)',
@@ -59,13 +58,10 @@ export default function Header({ onLoginClick, onLibraryClick, showToast }) {
           fontSize: 11, fontFamily: "'Fira Code', monospace", letterSpacing: 1,
         }}>AI-Powered</span>
 
-        {/* Lab Guide */}
-        <button
-          onClick={() => navigate('/labs')}
-          style={outlineBtn}
-        >🔬 Lab Guide</button>
+        <button onClick={() => navigate('/labs')} style={outlineBtn}>
+          🔬 Lab Guide
+        </button>
 
-        {/* Auth */}
         {user ? (
           <>
             <span style={{ fontSize: 13, color: '#3d5a5f', fontFamily: "'Fira Code', monospace" }}>
