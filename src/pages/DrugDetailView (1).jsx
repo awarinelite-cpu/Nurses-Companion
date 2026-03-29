@@ -1,0 +1,474 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { autosaveDrugProfile } from '../services/autosave';
+import { useParams, useNavigate } from 'react-router-dom';
+import { getOfflineProfile } from '../data/drugProfiles';
+
+// ─── Streaming helper — calls OUR proxy, not Anthropic directly ──
+// The browser cannot call api.anthropic.com (CORS + no API key).
+// Our Express server at /api/drug-profile forwards the request.
+async function streamDrugProfile(drugName, onChunk, onDone, onError) {
+  try {
+    const response = await fetch('/api/drug-profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ drugName }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err?.error || `Server error ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // keep incomplete last line
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6).trim();
+        if (raw === '[DONE]') continue;
+        try {
+          const evt = JSON.parse(raw);
+          // Check for proxied error
+          if (evt.type === 'error') {
+            onError(evt.error);
+            return;
+          }
+          // Standard Anthropic SSE delta
+          if (evt.type === 'content_block_delta' && evt.delta?.text) {
+            onChunk(evt.delta.text);
+          }
+        } catch (_) {
+          // Ignore malformed SSE lines
+        }
+      }
+    }
+    onDone();
+  } catch (err) {
+    onError(err.message);
+  }
+}
+
+// ─── Markdown-lite renderer (for AI streamed content) ─────────
+function renderMarkdown(text) {
+  const lines = text.split('\n');
+  const elements = [];
+  let key = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      elements.push(<div key={key++} style={{ height: 6 }} />);
+    } else if (trimmed.startsWith('## ')) {
+      elements.push(
+        <h3 key={key++} style={{
+          fontFamily: "'Times New Roman', serif",
+          fontSize: 13,
+          fontWeight: 700,
+          color: '#4a9ba8',
+          textTransform: 'uppercase',
+          letterSpacing: 2,
+          marginTop: 20,
+          marginBottom: 6,
+          borderBottom: '1px solid rgba(74,155,168,0.2)',
+          paddingBottom: 4,
+        }}>
+          {trimmed.slice(3)}
+        </h3>
+      );
+    } else if (trimmed.startsWith('• ') || trimmed.startsWith('- ')) {
+      elements.push(
+        <div key={key++} style={{ display: 'flex', gap: 8, marginBottom: 5, alignItems: 'flex-start' }}>
+          <span style={{ color: '#8b6347', fontSize: 14, marginTop: 1, flexShrink: 0 }}>•</span>
+          <span style={{ fontSize: 13.5, color: '#1e2d2f', lineHeight: 1.55, fontFamily: "'Times New Roman', serif" }}>
+            {trimmed.slice(2)}
+          </span>
+        </div>
+      );
+    } else {
+      elements.push(
+        <p key={key++} style={{ fontSize: 13.5, color: '#1e2d2f', lineHeight: 1.55, margin: '4px 0', fontFamily: "'Times New Roman', serif" }}>
+          {trimmed}
+        </p>
+      );
+    }
+  }
+  return elements;
+}
+
+// ─── Offline section wrapper ───────────────────────────────────
+function OfflineSection({ title, children }) {
+  return (
+    <div style={{ marginTop: 20 }}>
+      <h3 style={{
+        fontFamily: "'Times New Roman', serif",
+        fontSize: 13,
+        fontWeight: 700,
+        color: '#4a9ba8',
+        textTransform: 'uppercase',
+        letterSpacing: 2,
+        marginBottom: 6,
+        borderBottom: '1px solid rgba(74,155,168,0.2)',
+        paddingBottom: 4,
+      }}>
+        {title}
+      </h3>
+      {children}
+    </div>
+  );
+}
+
+function OfflineBullet({ text }) {
+  return (
+    <div style={{ display: 'flex', gap: 8, marginBottom: 5, alignItems: 'flex-start' }}>
+      <span style={{ color: '#8b6347', fontSize: 14, marginTop: 1, flexShrink: 0 }}>•</span>
+      <span style={{ fontSize: 13.5, color: '#1e2d2f', lineHeight: 1.55, fontFamily: "'Times New Roman', serif" }}>
+        {text}
+      </span>
+    </div>
+  );
+}
+
+function OfflineNursingBullet({ text }) {
+  const isWarning = /^(STOP|NEVER|ALWAYS|MANDATORY|CONTRAINDICATED|HOLD|HIGH ALERT|WARN|CHECK|DO NOT|MUST|ABORT|FATAL|LETHAL|EMERGENCY|AVOID|NEVER CRUSH|NEVER MIX)/.test(
+    text.toUpperCase()
+  );
+  return (
+    <div style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'flex-start' }}>
+      <span style={{ color: isWarning ? '#c0392b' : '#8b6347', fontSize: 14, marginTop: 1, flexShrink: 0 }}>
+        {isWarning ? '⚠' : '•'}
+      </span>
+      <span style={{
+        fontSize: 13.5,
+        color: isWarning ? '#c0392b' : '#1e2d2f',
+        lineHeight: 1.55,
+        fontFamily: "'Times New Roman', serif",
+        fontWeight: isWarning ? 600 : 400,
+      }}>
+        {text}
+      </span>
+    </div>
+  );
+}
+
+// ─── Offline profile renderer ──────────────────────────────────
+function OfflineProfile({ profile }) {
+  return (
+    <div>
+      {/* Classification badges */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+        {profile.class && (
+          <span style={{
+            background: 'rgba(74,155,168,0.1)', color: '#4a9ba8',
+            border: '1px solid rgba(74,155,168,0.3)', borderRadius: 20,
+            padding: '4px 12px', fontSize: 11, fontFamily: "'Fira Code', monospace", letterSpacing: 1,
+          }}>
+            {profile.class}
+          </span>
+        )}
+        {profile.subclass && (
+          <span style={{
+            background: 'rgba(139,99,71,0.1)', color: '#6b4a32',
+            border: '1px solid rgba(139,99,71,0.3)', borderRadius: 20,
+            padding: '4px 12px', fontSize: 11, fontFamily: "'Fira Code', monospace", letterSpacing: 1,
+          }}>
+            {profile.subclass}
+          </span>
+        )}
+      </div>
+
+      {profile.overview && (
+        <OfflineSection title="Overview">
+          <p style={{ fontSize: 13.5, color: '#1e2d2f', lineHeight: 1.6, fontFamily: "'Times New Roman', serif", margin: 0 }}>
+            {profile.overview}
+          </p>
+        </OfflineSection>
+      )}
+
+      {profile.indications?.length > 0 && (
+        <OfflineSection title="Indications">
+          {profile.indications.map((item, i) => <OfflineBullet key={i} text={item} />)}
+        </OfflineSection>
+      )}
+
+      {profile.dosage && (
+        <OfflineSection title="Dosage & Route">
+          <div style={{
+            background: 'rgba(74,155,168,0.06)', border: '1px solid rgba(74,155,168,0.15)',
+            borderRadius: 10, padding: '10px 14px',
+          }}>
+            <p style={{ fontSize: 13.5, color: '#1e2d2f', lineHeight: 1.6, fontFamily: "'Times New Roman', serif", margin: 0 }}>
+              {profile.dosage}
+            </p>
+          </div>
+        </OfflineSection>
+      )}
+
+      {profile.mechanism && (
+        <OfflineSection title="Mechanism">
+          <p style={{ fontSize: 13.5, color: '#1e2d2f', lineHeight: 1.6, fontFamily: "'Times New Roman', serif", margin: 0 }}>
+            {profile.mechanism}
+          </p>
+        </OfflineSection>
+      )}
+
+      {profile.sideEffects?.length > 0 && (
+        <OfflineSection title="Side Effects">
+          {profile.sideEffects.map((item, i) => <OfflineBullet key={i} text={item} />)}
+        </OfflineSection>
+      )}
+
+      {profile.nursing?.length > 0 && (
+        <OfflineSection title="Nursing Points">
+          {profile.nursing.map((item, i) => <OfflineNursingBullet key={i} text={item} />)}
+        </OfflineSection>
+      )}
+
+      {profile.contraindications?.length > 0 && (
+        <OfflineSection title="Contraindications">
+          <div style={{
+            background: 'rgba(192,57,43,0.04)', border: '1px solid rgba(192,57,43,0.15)',
+            borderRadius: 10, padding: '10px 14px',
+          }}>
+            {profile.contraindications.map((item, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 5, alignItems: 'flex-start' }}>
+                <span style={{ color: '#c0392b', fontSize: 13, marginTop: 1, flexShrink: 0 }}>✕</span>
+                <span style={{ fontSize: 13.5, color: '#7b241c', lineHeight: 1.55, fontFamily: "'Times New Roman', serif" }}>
+                  {item}
+                </span>
+              </div>
+            ))}
+          </div>
+        </OfflineSection>
+      )}
+    </div>
+  );
+}
+
+// ─── Loading skeleton ──────────────────────────────────────────
+function Skeleton() {
+  return (
+    <div style={{ animation: 'pulse 1.5s ease infinite' }}>
+      {[
+        ['60%', 16], ['100%', 12], ['85%', 12], ['70%', 12],
+        ['100%', 16], ['90%', 12], ['80%', 12],
+        ['100%', 16], ['75%', 12], ['60%', 12], ['88%', 12],
+      ].map(([w, h], i) => (
+        <div key={i} style={{
+          height: h, width: w, background: 'rgba(74,155,168,0.1)',
+          borderRadius: 6, marginBottom: 8,
+        }} />
+      ))}
+    </div>
+  );
+}
+
+// ─── Main component ────────────────────────────────────────────
+export default function DrugDetailView({ showToast, onLoginNeeded }) {
+  const { drugName: rawDrug } = useParams();
+  const navigate = useNavigate();
+  const drug = decodeURIComponent(rawDrug || '');
+
+  // Check offline profile first (instant — no network)
+  const offlineProfile = getOfflineProfile(drug);
+  const isOffline = !!offlineProfile;
+
+  // AI streaming state (only when no offline profile)
+  const [content, setContent] = useState('');
+  const [status, setStatus] = useState(isOffline ? 'offline' : 'idle');
+  const [error, setError] = useState('');
+  const [elapsed, setElapsed] = useState(0);
+  const startRef = useRef(Date.now());
+  const timerRef = useRef(null);
+
+  const load = useCallback(() => {
+    if (isOffline) return;
+    setContent('');
+    setError('');
+    setStatus('loading');
+    startRef.current = Date.now();
+
+    timerRef.current = setInterval(() => {
+      setElapsed(((Date.now() - startRef.current) / 1000).toFixed(1));
+    }, 100);
+
+    streamDrugProfile(
+      drug,
+      (chunk) => {
+        setStatus('streaming');
+        setContent((prev) => prev + chunk);
+      },
+      () => {
+        clearInterval(timerRef.current);
+        const secs = ((Date.now() - startRef.current) / 1000).toFixed(1);
+        setElapsed(secs);
+        setStatus('done');
+        setContent((finalContent) => {
+          autosaveDrugProfile({ drugName: drug, content: finalContent, elapsedSecs: parseFloat(secs) });
+          return finalContent;
+        });
+      },
+      (msg) => {
+        clearInterval(timerRef.current);
+        setError(msg);
+        setStatus('error');
+      }
+    );
+  }, [drug, isOffline]);
+
+  useEffect(() => {
+    if (!isOffline) load();
+    return () => clearInterval(timerRef.current);
+  }, [load, isOffline]);
+
+  const isDone = status === 'done' || status === 'offline';
+
+  // Status badge
+  const badgeLabel =
+    status === 'offline' ? '⚡ available offline'
+    : status === 'done' ? `✓ loaded in ${elapsed}s`
+    : status === 'error' ? '✕ failed'
+    : `loading… ${elapsed}s`;
+
+  const badgeColor =
+    status === 'offline' ? '#2ea043'
+    : status === 'done' ? '#4a9ba8'
+    : status === 'error' ? '#c0392b'
+    : '#8b6347';
+
+  const badgeBg =
+    status === 'offline' ? 'rgba(46,160,67,0.1)'
+    : status === 'done' ? 'rgba(74,155,168,0.1)'
+    : status === 'error' ? 'rgba(192,57,43,0.08)'
+    : 'rgba(139,99,71,0.08)';
+
+  return (
+    <div style={{ maxWidth: 680, margin: '0 auto', padding: '0 16px 40px', animation: 'fadeUp 0.3s ease both' }}>
+      <style>{`
+        @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+        @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0; } }
+      `}</style>
+
+      {/* Back button */}
+      <button onClick={() => navigate(-1)} style={{
+        background: 'none', border: 'none', cursor: 'pointer', color: '#4a9ba8',
+        fontSize: 13, fontFamily: "'Fira Code', monospace", letterSpacing: 1,
+        padding: '16px 0', display: 'flex', alignItems: 'center', gap: 6,
+      }}>
+        ← BACK TO SEARCH
+      </button>
+
+      {/* Header card */}
+      <div style={{
+        background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255,255,255,0.6)', borderTop: '4px solid #4a9ba8',
+        borderRadius: 20, padding: '24px 28px', boxShadow: '0 4px 32px rgba(0,0,0,0.10)', marginBottom: 16,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 11, fontFamily: "'Fira Code', monospace", color: '#4a9ba8', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 6 }}>
+              Drug Profile
+            </div>
+            <h1 style={{ fontFamily: "'Times New Roman', serif", fontSize: 26, fontWeight: 700, color: '#1e2d2f', margin: 0, lineHeight: 1.2 }}>
+              {drug}
+            </h1>
+          </div>
+          {/* Status badge */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            background: badgeBg, border: `1px solid ${badgeColor}40`,
+            borderRadius: 20, padding: '6px 14px',
+          }}>
+            {(status === 'loading' || status === 'streaming') && (
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#8b6347', display: 'inline-block', animation: 'pulse 1s infinite' }} />
+            )}
+            <span style={{ fontSize: 11, fontFamily: "'Fira Code', monospace", color: badgeColor, letterSpacing: 1 }}>
+              {badgeLabel}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Content card */}
+      <div style={{
+        background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255,255,255,0.6)', borderRadius: 20,
+        padding: '24px 28px', boxShadow: '0 4px 32px rgba(0,0,0,0.10)', minHeight: 300,
+      }}>
+
+        {/* ── OFFLINE (instant) ── */}
+        {isOffline && <OfflineProfile profile={offlineProfile} />}
+
+        {/* ── AI FALLBACK ── */}
+        {!isOffline && (
+          <>
+            {/* Error */}
+            {status === 'error' && (
+              <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                <div style={{ fontSize: 36, marginBottom: 12 }}>⚠️</div>
+                <div style={{ fontFamily: "'Times New Roman', serif", fontWeight: 700, color: '#1e2d2f', marginBottom: 8 }}>
+                  Could not load profile
+                </div>
+                <div style={{ fontSize: 12, color: '#7a9ea4', marginBottom: 20, maxWidth: 340, margin: '0 auto 20px' }}>
+                  {error}
+                </div>
+                <button onClick={load} style={{
+                  background: '#4a9ba8', color: '#fff', border: 'none', borderRadius: 12,
+                  padding: '10px 24px', fontSize: 13, cursor: 'pointer',
+                  fontFamily: "'Times New Roman', serif", fontWeight: 700,
+                }}>
+                  ↺ Try Again
+                </button>
+              </div>
+            )}
+
+            {/* Loading skeleton */}
+            {status === 'loading' && <Skeleton />}
+
+            {/* Streaming / done content */}
+            {content && (
+              <div>
+                {renderMarkdown(content)}
+                {status === 'streaming' && (
+                  <span style={{
+                    display: 'inline-block', width: 2, height: 15,
+                    background: '#4a9ba8', marginLeft: 2, verticalAlign: 'middle',
+                    animation: 'blink 0.7s infinite',
+                  }} />
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Footer notes */}
+      {isOffline && (
+        <div style={{ textAlign: 'center', marginTop: 12, fontSize: 11, fontFamily: "'Fira Code', monospace", color: 'rgba(255,255,255,0.4)', letterSpacing: 1 }}>
+          EMDEX 2023–2024 · Available without internet
+        </div>
+      )}
+
+      {!isOffline && status === 'done' && (
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+          <button onClick={load} style={{
+            background: 'none', border: '1px solid rgba(74,155,168,0.3)',
+            borderRadius: 12, color: '#4a9ba8', padding: '8px 20px',
+            fontSize: 12, cursor: 'pointer', fontFamily: "'Fira Code', monospace", letterSpacing: 1,
+          }}>
+            ↻ REGENERATE
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
