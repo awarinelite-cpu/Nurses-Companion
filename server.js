@@ -1,39 +1,33 @@
 // ============================================================
-// server.js  —  Lightweight Express proxy for Anthropic API
-// Place in project ROOT (same level as package.json)
+// server.js  —  ESM version (required because package.json
+//               has "type": "module")
 //
-// Why this exists:
-//   Browsers cannot call api.anthropic.com directly (CORS).
-//   This proxy runs on the same Render service as the frontend,
-//   forwards streaming requests to Anthropic, and keeps the
-//   API key safely on the server side (never in the browser).
-//
-// Setup:
-//   1. Add ANTHROPIC_API_KEY to Render environment variables
-//   2. Update package.json scripts (see bottom of this file)
-//   3. Update DrugDetailView.jsx to call /api/drug-profile
+// Place in project ROOT alongside package.json
 // ============================================================
 
-const express = require('express');
-const https = require('https');
-const path = require('path');
+import express from 'express';
+import https from 'https';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// __dirname is not available in ESM — recreate it
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json());
 
-// ─── Serve the built React app ───────────────────────────────
-// Vite builds to 'dist/', Create React App builds to 'build/'
-// Adjust the folder name to match your setup
+// ─── Serve the Vite build output ─────────────────────────────
 const STATIC_DIR = process.env.STATIC_DIR || 'dist';
 app.use(express.static(path.join(__dirname, STATIC_DIR)));
 
-// ─── API proxy endpoint ──────────────────────────────────────
+// ─── API proxy endpoint ───────────────────────────────────────
 app.post('/api/drug-profile', (req, res) => {
   const apiKey = process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {
     return res.status(500).json({
-      error: 'ANTHROPIC_API_KEY environment variable is not set on the server.',
+      error: 'ANTHROPIC_API_KEY is not set in the server environment variables.',
     });
   }
 
@@ -43,13 +37,12 @@ app.post('/api/drug-profile', (req, res) => {
     return res.status(400).json({ error: 'drugName is required.' });
   }
 
-  // Build the Anthropic request payload
   const payload = JSON.stringify({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 1024,
     stream: true,
     system: `You are a clinical pharmacology reference for nurses and doctors in Nigeria and West Africa.
-Respond ONLY with a concise, structured drug profile using these EXACT section headers (no extra text before or after):
+Respond ONLY with a concise, structured drug profile using these EXACT section headers:
 
 ## Overview
 ## Indications
@@ -61,11 +54,11 @@ Respond ONLY with a concise, structured drug profile using these EXACT section h
 
 Rules:
 - Use • for bullet points
-- Keep each section to 3-5 bullets
+- 3–5 bullets per section
 - Be clinical, precise, and practical
-- Include Nigerian brand names or NAFDAC context where relevant
-- Dosage should include both adult and paediatric where applicable
-- Nursing Points must highlight the most critical safety actions`,
+- Include Nigerian/West African brand names or NAFDAC context where relevant
+- Dosage must include adult and paediatric doses where applicable
+- Nursing Points must highlight the most critical safety actions first`,
     messages: [
       {
         role: 'user',
@@ -74,7 +67,6 @@ Rules:
     ],
   });
 
-  // Forward request to Anthropic with streaming
   const options = {
     hostname: 'api.anthropic.com',
     path: '/v1/messages',
@@ -87,38 +79,36 @@ Rules:
     },
   };
 
-  // Set SSE headers so the browser can read the stream
+  // SSE headers so the browser can read the stream in real time
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering on Render
+  res.setHeader('X-Accel-Buffering', 'no'); // Prevents Render/nginx from buffering
 
   const proxyReq = https.request(options, (proxyRes) => {
-    // If Anthropic returns an error status, relay it
+    // Non-200 from Anthropic → parse and relay the error
     if (proxyRes.statusCode !== 200) {
       let errBody = '';
       proxyRes.on('data', (chunk) => { errBody += chunk; });
       proxyRes.on('end', () => {
         try {
           const parsed = JSON.parse(errBody);
-          res.write(`data: ${JSON.stringify({ type: 'error', error: parsed?.error?.message || 'Anthropic API error' })}\n\n`);
+          res.write(
+            `data: ${JSON.stringify({ type: 'error', error: parsed?.error?.message || 'Anthropic API error' })}\n\n`
+          );
         } catch {
-          res.write(`data: ${JSON.stringify({ type: 'error', error: `API returned status ${proxyRes.statusCode}` })}\n\n`);
+          res.write(
+            `data: ${JSON.stringify({ type: 'error', error: `API returned status ${proxyRes.statusCode}` })}\n\n`
+          );
         }
         res.end();
       });
       return;
     }
 
-    // Pipe Anthropic's SSE stream directly to the browser
-    proxyRes.on('data', (chunk) => {
-      res.write(chunk);
-    });
-
-    proxyRes.on('end', () => {
-      res.end();
-    });
-
+    // Pipe Anthropic's SSE stream directly to the browser response
+    proxyRes.on('data', (chunk) => res.write(chunk));
+    proxyRes.on('end', () => res.end());
     proxyRes.on('error', (err) => {
       res.write(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`);
       res.end();
@@ -130,24 +120,22 @@ Rules:
     res.end();
   });
 
-  // Handle client disconnect
-  req.on('close', () => {
-    proxyReq.destroy();
-  });
+  // Clean up if the browser disconnects mid-stream
+  req.on('close', () => proxyReq.destroy());
 
   proxyReq.write(payload);
   proxyReq.end();
 });
 
-// ─── Catch-all: send React app for client-side routing ───────
-app.get('*', (req, res) => {
+// ─── Catch-all: let React Router handle client-side routes ────
+app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, STATIC_DIR, 'index.html'));
 });
 
-// ─── Start server ─────────────────────────────────────────────
+// ─── Start ────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log(`✅ Proxy server running on port ${PORT}`);
-  console.log(`   Serving static files from: ${STATIC_DIR}/`);
-  console.log(`   API key configured: ${process.env.ANTHROPIC_API_KEY ? 'YES' : 'NO ⚠️'}`);
+  console.log(`✅  NurseCare AI server running on port ${PORT}`);
+  console.log(`    Static files : ${STATIC_DIR}/`);
+  console.log(`    API key set  : ${process.env.ANTHROPIC_API_KEY ? 'YES ✓' : 'NO ✗  — set ANTHROPIC_API_KEY in Render'}`);
 });
